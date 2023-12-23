@@ -6,7 +6,6 @@ Number  = (int, float)
 Atom = (Symbol, Number)
 List = list
 Exp = (Atom, List)
-Env = dict
 
 def tokenize(code):
     "Convert a string of characters into a list of tokens."
@@ -73,25 +72,53 @@ def standard_env():
     })
     return env
 
+class Env(dict):
+    "An environment: a dict of {'var': val} pairs, with an outer Env"
+    def __init__(self, params=(), args=(), outer=None):
+        self.update(zip(params, args))
+        self.outer = outer
+    
+    def find(self, var):
+        "Find the innermost Env where var appears"
+        return self if var in self else self.outer.find(var)
+
+class Procedure(object):
+    "A user defined Scheme procedure"
+    def __init__(self, params, body, env):
+        self.params, self.body, self.env = params, body, env
+
+    def __call__(self, *args):
+        return eval(self.body, Env(self.params, args, self.env))
+
 global_env = standard_env()
 
-def eval (x: Exp, env=global_env, count=0) -> Exp:
+def eval(x, env=global_env):
     "Evaluate an expression in an environment."
-    if isinstance(x, Symbol):       # variable reference
-        return env[x]
-    elif isinstance(x, Number):     # constant number
-        return x
-    elif x[0] == 'if':              # conditional
-        (_, test, conseq, alt) = x
-        exp = (conseq if eval(test, env, count+1) else alt)
-        return eval(exp, env, count+1)
-    elif x[0] == 'define':          # definition
-        (_, symbol, exp) = x
-        env[symbol] = eval(exp, env, count+1)
-    else:                           # procedure call
-        proc = eval(x[0], env, count+1)
-        args = [eval(arg, env, count+1) for arg in x[1:]]
-        return proc(*args)
+    if isinstance(x, Symbol):    # variable reference
+        return env.find(x)[x]
+    elif not isinstance(x, List):# constant 
+        return x   
+    op, *args = x       
+    if op == 'quote':            # quotation
+        return args[0]
+    elif op == 'if':             # conditional
+        (test, conseq, alt) = args
+        exp = (conseq if eval(test, env) else alt)
+        return eval(exp, env)
+    elif op == 'define':         # definition
+        (symbol, exp) = args
+        env[symbol] = eval(exp, env)
+    elif op == 'set!':           # assignment
+        (symbol, exp) = args
+        env.find(symbol)[symbol] = eval(exp, env)
+    elif op == 'lambda':         # procedure
+        (parms, body) = args
+        return Procedure(parms, body, env)
+    else:                        # procedure call
+        proc = eval(op, env)
+        vals = [eval(arg, env) for arg in args]
+        return proc(*vals)
+
 
 def repl(prompt='lis.py >> '):
     "A prompt-read-eval-print-loop"
